@@ -126,14 +126,14 @@ Key questions addressed:
 
 Dataset features include:
 
--   **age**: Integer, primary beneficiary's age
--   **sex**: Factor, gender (female/male)
--   **bmi**: Continuous, body mass index
--   **children**: Integer, number of dependents
--   **smoker**: Factor, smoking status (yes/no)
--   **region**: Factor, US residential area (northeast, southeast, southwest, northwest)
+-   **age**: `Integer` - primary beneficiary's age
+-   **sex**: `Factor` - gender (female/male)
+-   **bmi**: `Continuous` - Body Mass Index
+-   **children**: `Integer` - number of dependents
+-   **smoker**: `Factor` - smoking status (yes/no)
+-   **region**: `Factor` - US residential area (northeast, southeast, southwest, northwest)
 
-The target variable **charges** has been transformed to binary ("high"/"low"). Four classification algorithms are implemented: L1-regularized logistic regression, classification tree, random forest, and XGBoost.
+The target variable **charges** has been transformed (external to this analysis) from a continuous dollar amount to binary ("high"/"low"). Four classification algorithms are implemented: L1-regularized (LASSO) logistic regression, classification tree, random forest, and XGBoost.
 
 ## Data Sources {#sec-data-sources}
 
@@ -146,11 +146,11 @@ The data can be accessed from:
 
 The model development approach comprises three phases:
 
-1. **Training Phase**: The `insurance_A2.csv` dataset is split into training (80%) and internal validation (20%) sets
-2. **Model Selection Phase**: Models are evaluated on validation set with emphasis on F1 score
-3. **External Validation Phase**: Best model applied to a separate dataset (`A2_testing.csv`)
+1. **Training Phase**: The `insurance_A2.csv` dataset is split into training (80%) and internal validation (20%) sets.
+2. **Model Selection Phase**: Models are evaluated on the internal validation set with emphasis on the F1 score.
+3. **External Validation Phase**: The best model is then applied to a separate dataset (`A2_testing.csv`).
 
-This approach minimizes overfitting risk and provides realistic assessment of model generalizability.
+This approach minimizes over-fitting risk and provides a more robust assessment of model generalizability.
 
 ```{r data-preparation}
 # Convert appropriate columns to factors
@@ -168,12 +168,6 @@ insurance_data$charges <- relevel(insurance_data$charges, ref = "low")
 insurance_data$sex <- relevel(insurance_data$sex, ref = "female")
 insurance_data$smoker <- relevel(insurance_data$smoker, ref = "no")
 insurance_data$region <- relevel(insurance_data$region, ref = "northeast")
-
-# Print factor levels to verify encoding (in actual run, this output will be hidden)
-cat("Charge levels (reference first):", levels(insurance_data$charges), "\n")
-cat("Sex levels (reference first):", levels(insurance_data$sex), "\n")
-cat("Smoker levels (reference first):", levels(insurance_data$smoker), "\n")
-cat("Region levels (reference first):", levels(insurance_data$region), "\n")
 
 # Split data into training and testing sets
 set.seed(my_seed)
@@ -196,32 +190,10 @@ training_charges_percent <- prop.table(training_charges_dist) * 100
 
 ## Data Structure and Target Distribution {#sec-target-distribution}
 
-```{r target-distribution, fig.cap="Distribution of Target Variable (Charges)", fig.height=5}
+```{r target-distribution, fig.height=5}
 # Calculate the distribution of the target variable
 charges_distribution <- table(insurance_data$charges)
 charges_percent <- prop.table(charges_distribution) * 100
-
-# Combine into a data frame
-charges_summary <- data.frame(
-  Percentage = charges_percent,
-  Count = as.integer(charges_distribution)
-  ) %>% 
-  rename('Class' = 1)
-
-# Format table
-kbl(
-  charges_summary,
-  caption = "Distribution of Target Variable (Charges)",
-  format = "latex",
-  booktabs = TRUE,
-  align = "c",
-  digits = 1
-) %>%
-  kable_styling(
-    latex_options = c("HOLD_position"),
-    font_size = 10,
-    position = "center"
-  )
 
 # Create bar plot
 ggplot(data.frame(charges = insurance_data$charges), 
@@ -242,12 +214,40 @@ ggplot(data.frame(charges = insurance_data$charges),
   coord_cartesian(clip = "off")  # Prevent clipping of elements
 ```
 
-The target variable shows class imbalance with `r round(charges_percent["high"], 1)`% "high" and `r round(charges_percent["low"], 1)`% "low" charges. This imbalance makes F1 score a priority metric as it balances precision and recall, which is less sensitive to class imbalance than accuracy.
+The target variable shows class imbalance with `r round(charges_percent["low"], 1)`% "low" and `r round(charges_percent["high"], 1)`% "high" charges. This imbalance makes F1 score a priority metric as it balances precision and recall, which is less sensitive to class imbalance than accuracy.
 
 ## Key Variable Relationships {#sec-key-relationships}
 
-```{r categorical-analysis, fig.cap="Categorical Variables Analysis", fig.height=5}
-# Create bar plot for smoker status
+```{r fig-categorical-analysis, fig.cap="Proportion of Charges by Smoking Status", fig.height=5}
+# Calculate proportions for smokers and non-smokers
+smoker_props <- insurance_data %>%
+  group_by(smoker, charges) %>%
+  summarise(count = n()) %>%
+  group_by(smoker) %>%
+  mutate(
+    prop = count / sum(count),
+    percentage = prop * 100,
+    formatted_pct = paste0(round(percentage, 1), "%")
+  )
+
+# Extract key values for dynamic text references
+smoker_high_pct <- smoker_props %>% 
+  filter(smoker == "yes" & charges == "high") %>% 
+  pull(percentage)
+
+smoker_low_pct <- smoker_props %>% 
+  filter(smoker == "yes" & charges == "low") %>% 
+  pull(percentage)
+
+nonsmoker_high_pct <- smoker_props %>% 
+  filter(smoker == "no" & charges == "high") %>% 
+  pull(percentage)
+
+nonsmoker_low_pct <- smoker_props %>% 
+  filter(smoker == "no" & charges == "low") %>% 
+  pull(percentage)
+
+# Create bar plot for smoker status with dynamically calculated values
 ggplot(insurance_data, aes(x = smoker, fill = charges)) +
   geom_bar(position = "fill", width = 0.7, color = "white") +
   geom_text(aes(label = percent(..count../tapply(..count.., ..x.., sum)[..x..])),
@@ -268,7 +268,7 @@ ggplot(insurance_data, aes(x = smoker, fill = charges)) +
 
 - **Age**: Higher ages correlate with "high" charges in an approximately linear relationship
 - **BMI**: "High" charges tend to have higher BMI values, with a potential non-linear relationship
-- **Smoking status**: The strongest predictor, with smokers predominantly classified as "high" charges (as shown in the figure)
+- **Smoking status**: The strongest categorical predictor, with `r round(smoker_high_pct, 1)`% of smokers classified as "high" charges compared to only `r round(nonsmoker_high_pct, 1)`% of non-smokers (as shown in @fig-categorical-analysis)
 - **Sex**: Only minor differences between males and females
 - **Region**: Modest regional differences, with northeast showing slightly higher proportion of "high" charges
 - **Children**: A slight trend toward higher charges for families with more children
@@ -293,7 +293,7 @@ corrplot(correlation_matrix,
          tl.col = "black", 
          tl.srt = 45, 
          addCoef.col = "black",
-         col = colorRampPalette(c("#4575b4", "white", "#d73027"))(200),
+         col = colorRampPalette(charge_colors)(200),
          diag = FALSE,
          title = "Correlation Matrix of Variables",
          mar = c(0, 0, 2, 0),
@@ -303,23 +303,23 @@ corrplot(correlation_matrix,
 
 **Correlation analysis confirms:**
 
-- **Age** has strongest correlation with high charges (`r round(correlation_matrix["age", "charges_numeric"], 2)`)
-- **Smoking status** has second strongest correlation (`r round(correlation_matrix["smoker_numeric", "charges_numeric"], 2)`)
+- **Age** has the strongest correlation with high charges (`r round(correlation_matrix["age", "charges_numeric"], 2)`)
+- **Smoking status** has the second strongest correlation (`r round(correlation_matrix["smoker_numeric", "charges_numeric"], 2)`)
 - **BMI** shows moderate positive correlation (`r round(correlation_matrix["bmi", "charges_numeric"], 2)`)
 - **Children** and **Sex** show weaker correlations
 - Low multicollinearity among predictors is favorable for modeling
 
 **Important interaction effects:**
 
-- **Smoking and Age**: Smoking is such a dominant predictor that most smokers fall into "high" charges category regardless of age
+- **Smoking and Age**: Smoking is such a dominant predictor that `r ifelse(smoker_high_pct == 100, "all", paste0(round(smoker_high_pct, 1), "% of"))` smokers fall into "high" charges category regardless of age
 - **Smoking and BMI**: For non-smokers, higher BMI correlates more strongly with "high" charges
 
 # Modeling {#sec-modeling}
 
 ## Logistic Regression with L1 Regularization {#sec-logistic}
 
-```{r logistic-full, results='hide'}
-```{r logistic-full, results='hide'}
+```{r logistic-full}
+
 # Verify factor levels before modeling
 stopifnot(levels(train_data$charges)[1] == "low")
 
@@ -328,9 +328,59 @@ logistic_full <- glm(charges ~ age + sex + bmi + children + smoker + region,
                    family = binomial(link = "logit"), 
                    data = train_data)
 
-# Print model summary for verification (hidden in final output)
-print(summary(logistic_full))
+# Print model summary for full logistic regression model
+summary_table <- summary(logistic_full)
+
+# Display coefficient table in more readable format
+coef_table <- as.data.frame(summary_table$coefficients)
+colnames(coef_table) <- c("Estimate", "Std. Error", "z value", "Pr(>|z|)")
+coef_table$Significance <- ifelse(coef_table$`Pr(>|z|)` < 0.001, "***",
+                              ifelse(coef_table$`Pr(>|z|)` < 0.01, "**",
+                                ifelse(coef_table$`Pr(>|z|)` < 0.05, "*", "")))
+
+kbl(
+  coef_table,
+  caption = "Full Logistic Regression Model Coefficients",
+  format = "latex",
+  booktabs = TRUE,
+  align = "c",
+  digits = 4
+) %>%
+  kable_styling(
+    latex_options = c("HOLD_position", "scale_down"),
+    font_size = 10,
+    position = "center"
+  ) %>%
+  footnote(
+    general = "Significance codes: *** p<0.001, ** p<0.01, * p<0.05",
+    general_title = "Note: ",
+    footnote_as_chunk = TRUE,
+    escape = FALSE
+  )
+
+# Show model fit statistics
+model_stats <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "AIC"),
+  Value = c(summary_table$null.deviance, summary_table$deviance, summary_table$aic)
+)
+
+# kbl(
+#   model_stats,
+#   caption = "Logistic Regression Model Fit Statistics",
+#   format = "latex",
+#   booktabs = TRUE,
+#   align = "lc",
+#   digits = 2
+# ) %>%
+#   kable_styling(
+#     latex_options = c("HOLD_position"),
+#     font_size = 10,
+#     position = "center"
+#   )
 ```
+
+The full logistic regression model before regularization reveals several significant predictors. Most notably, smoking status exhibits an extremely large positive coefficient (`r round(logistic_full$coefficients["smokeryes"],3)`), indicating smokers have dramatically higher odds of being in the "high" charges category. Age also shows a significant positive effect (`r round(logistic_full$coefficients["age"],3)`), with each additional year increasing the log-odds of high charges. Regional variables demonstrate statistically significant negative coefficients compared to the northeast reference region, suggesting geographical variation in insurance costs.
+However, this unregularized model may be susceptible to overfitting, particularly with our relatively small dataset. To address this concern, we apply L1 regularization (LASSO) to perform variable selection and coefficient shrinkage simultaneously.
 
 ```{r lasso-model, fig.height=5}
 # Prepare data for LASSO
@@ -339,10 +389,6 @@ x_train <- model.matrix(charges ~ ., data = train_data)[, -1]  # Remove intercep
 # Ensure consistent encoding: "high" = 1, "low" = 0
 y_train <- ifelse(train_data$charges == "high", 1, 0)
 x_test <- model.matrix(charges ~ ., data = test_data)[, -1]
-
-# Verify encoding consistency
-# cat("First few values of y_train:", head(y_train), "\n")
-# cat("Corresponding charges values:", head(as.character(train_data$charges[1:6])), "\n")
 
 # Find optimal lambda using cross-validation
 cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, family = "binomial", nfolds = 10)
@@ -383,18 +429,18 @@ lasso_conf_matrix <- confusionMatrix(factor(lasso_pred, levels = c("low", "high"
                                     positive = "high")
 ```
 
-LASSO performs variable selection by shrinking coefficients to zero:
+LASSO regularization approach identifies key predictors while reducing overfitting.
 
-- **Smoking status** is the strongest predictor with coefficient of `r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "smokeryes"], 3)`
-- **Age** is second most important predictor with coefficient of `r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "age"], 3)`
-- **BMI** is also selected as important with coefficient of `r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "bmi"], 3)`
-- **Regional variables** show moderate effects with northeast region as the reference category
-- **Children** and **sex** also contribute to the model
-- This regularized approach identifies key predictors while reducing overfitting
+The results show:
+
+- **Smoking status** is the strongest predictor with a coefficient of `r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "smokeryes"], 3)`
+- **Regional variables** show moderate negative effects (with reference to northeast): southeast (`r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "regionsoutheast"], 3)`), southwest (`r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "regionsouthwest"], 3)`), and northwest (`r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "regionnorthwest"], 3)`)
+- **Children** has a stronger linear effect (`r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "children"], 3)`) than **age** (`r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "age"], 3)`)
+- **BMI** shows a small but positive effect (`r round(lasso_coef_df$Coefficient[lasso_coef_df$Variable == "bmi"], 3)`)
 
 ## Classification Tree {#sec-tree}
 
-```{r classification-tree, fig.height=5.5, fig.cap="Pruned Classification Tree for Insurance Charges"}
+```{r fig-classification-tree, fig.height=5.5, fig.cap="Pruned Classification Tree for Insurance Charges"}
 # Verify consistent factor encoding before tree modeling
 stopifnot(levels(train_data$charges)[1] == "low")
 
@@ -414,7 +460,7 @@ pruned_tree <- prune(tree_cv, cp = opt_cp)
 # Plot the pruned tree
 rpart.plot(pruned_tree, 
            extra = 106,
-           box.palette = c("#9ecae1", "#fc9272"),
+           box.palette = charge_colors,
            branch.lty = 1,
            shadow.col = "gray90",
            nn = TRUE,
@@ -427,13 +473,80 @@ rpart.plot(pruned_tree,
 # Calculate model metrics
 tree_pred <- predict(pruned_tree, newdata = test_data, type = "class")
 tree_conf_matrix <- confusionMatrix(tree_pred, test_data$charges, positive = "high")
+
+# Extract information from the tree
+root_node <- pruned_tree$frame[1,]
+root_class <- ifelse(root_node$yval == 1, "low", "high")
+root_prob <- round(root_node$yval2[,5], 2)
+
+# Function to extract information about a specific node
+get_node_info <- function(node_number) {
+  node_data <- pruned_tree$frame[node_number,]
+  node_class <- ifelse(node_data$yval == 1, "low", "high")
+  node_probs <- node_data$yval2[,4:5]
+  node_prob_class <- node_probs[node_class]
+  node_percent <- round(node_data$yval2[,5], 2)
+  
+  return(list(
+    class = node_class,
+    prob = node_prob_class,
+    percent = node_percent
+  ))
+}
+
+# Extract split variables and values
+splits <- pruned_tree$splits
+var_names <- row.names(splits)
+split_points <- splits[,4]
+
+# Get node information
+node2_info <- get_node_info(2)
+node3_info <- get_node_info(3)
+node4_info <- get_node_info(4)
+node5_info <- get_node_info(5)
+node6_info <- get_node_info(6)
+node7_info <- get_node_info(7)
+node8_info <- get_node_info(8)
+node9_info <- get_node_info(9)
+
+# Get percentages of observations
+node_percentages <- pruned_tree$frame$yval2[,5]
+
+first_split_var <- row.names(pruned_tree$splits)[1]
+first_split_value <- pruned_tree$splits[1,4]
+
+smoker_split_idx <- which(row.names(pruned_tree$splits) == "smoker")
+if(length(smoker_split_idx) > 0) {
+  smoker_split_value <- pruned_tree$splits[smoker_split_idx[1],4]
+}
+
+age_splits <- which(row.names(pruned_tree$splits) == "age")
+if(length(age_splits) > 1) {
+  second_age_split_value <- pruned_tree$splits[age_splits[2],4]
+}
+
+region_split_idx <- which(grepl("region", row.names(pruned_tree$splits)))
+if(length(region_split_idx) > 0) {
+  region_split_value <- row.names(pruned_tree$splits)[region_split_idx[1]]
+  region_split_value <- gsub("region=", "", region_split_value)
+}
 ```
 
-The classification tree reveals key decision rules:
-1. **Smoking status** forms the primary split
-2. For non-smokers, **age** becomes most important (over `r pruned_tree$splits[pruned_tree$splits[,1] == "age", 4]` years)
-3. **BMI** plays a role for specific age groups
-4. Tree structure effectively captures interaction effects
+The classification tree (@fig-classification-tree) reveals key decision rules:
+
+1. **Age is the primary predictor**: The model first splits on age, with `r ceiling(first_split_value)` being a critical threshold.
+
+2. **For younger individuals (< `r ceiling(first_split_value)`)**, smoking status is the most important factor:
+   - Non-smokers are generally low risk (`r round((1-node3_info$percent)*100)`% probability)
+   - Smokers are high risk with `r node4_info$percent*100`% certainty in this model
+
+3. **For older individuals ($\ge$ `r ceiling(first_split_value)`)**:
+   - Those `r ceiling(second_age_split_value)` and older are almost certainly high risk (`r node9_info$percent*100`% probability)
+   - For the middle age band (`r ceiling(first_split_value)`-`r ceiling(second_age_split_value-1)`), geographical region matters:
+     - Being in the southwest region is associated with lower risk
+     - Other regions have a higher risk (`r node8_info$percent*100`% probability)
+
+This tree  captures complex interaction effects among variables. The pathways reveal that while smoking is a very strong predictor, age is the primary decision factor in the tree model, with smoking becoming decisive for younger patients.
 
 ## Random Forest {#sec-random-forest}
 
@@ -459,6 +572,22 @@ rf_tuning_results <- do.call(rbind, rf_tuning)
 # Select best mtry
 best_mtry <- rf_tuning_results$mtry[which.min(rf_tuning_results$oob_error)]
 
+# Display tuning results
+# kbl(
+#   rf_tuning_results,
+#   caption = "Random Forest Hyperparameter Tuning Results",
+#   format = "latex",
+#   booktabs = TRUE,
+#   align = "c",
+#   digits = 4
+# ) %>%
+#   kable_styling(
+#     latex_options = c("HOLD_position"),
+#     font_size = 10,
+#     position = "center"
+#   ) %>%
+#   row_spec(which.min(rf_tuning_results$oob_error), bold = TRUE, background = "#E8F4F8") # Highlight best row
+
 # Fit final random forest model with best mtry
 set.seed(my_seed)
 rf_model <- randomForest(charges ~ age + sex + bmi + children + smoker + region,
@@ -481,18 +610,38 @@ ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseGini), y = MeanDecre
        x = "Variable",
        y = "Mean Decrease in Gini Index") +
   my_theme +
-  theme(panel.grid.major.y = element_blank())
+  theme(
+    panel.grid.major.y = element_blank(),
+    plot.margin = unit(c(1, 2, 1, 1), "cm"),  # Increase right margin to prevent label cutoff
+    axis.title.x = element_text(margin = grid::unit(c(10, 0, 0, 0), "pt"))
+  ) +
+  scale_y_continuous(limits = c(0, 230), expand = expansion(mult = c(0, 0.15)))  # Expand y-axis range to fit labels
 
 # Calculate model metrics
 rf_pred <- predict(rf_model, newdata = test_data)
 rf_conf_matrix <- confusionMatrix(rf_pred, test_data$charges, positive = "high")
 ```
 
-Random forest hyperparameter tuning identified mtry = `r best_mtry` as optimal. The variable importance confirms:
-- Age as the dominant predictor with Gini importance of `r round(importance_df$MeanDecreaseGini[importance_df$Variable == "age"], 1)`
-- Smoker status as second most important with importance of `r round(importance_df$MeanDecreaseGini[importance_df$Variable == "smoker"], 1)`
-- BMI ranked third with importance of `r round(importance_df$MeanDecreaseGini[importance_df$Variable == "bmi"], 1)`
+**mtry parameter selection rationale:**
+
+- With 6 predictor variables, we tested mtry values of 2, 3, and 4, which represent approximately 1/3, 1/2, and 2/3 of the total features.
+- This range spans from the default classification setting (sqrt(p) ≈ 2.45 for p=6) to a more aggressive feature sampling approach.
+- Lower mtry values (e.g., 2) create more diverse trees with less correlation, potentially better for capturing non-linear patterns.
+- Higher mtry values (e.g., 4) provide more candidate variables at each split, potentially capturing more complex relationships.
+- Through 10-fold cross-validation, mtry = `r best_mtry` minimized out-of-bag error rate (`r round(min(rf_tuning_results$oob_error), 4)`), balancing between tree diversity and predictive power
+
+**ntree parameter justification:**
+
+- We selected 500 trees as this provides sufficient ensemble size to stabilize predictions, balancing computational efficiency with model stability and accuracy.
+
+Random forest hyperparameter tuning identified mtry = `r best_mtry` as optimal. The variable importance pattern reveals a different perspective than the LASSO model:
+
+- **Age** is ranked as the dominant predictor with Gini importance of `r round(importance_df$MeanDecreaseGini[importance_df$Variable == "age"], 1)`
+- **Smoker status** is second most important with importance of `r round(importance_df$MeanDecreaseGini[importance_df$Variable == "smoker"], 1)`
+- **BMI** ranked third with importance of `r round(importance_df$MeanDecreaseGini[importance_df$Variable == "bmi"], 1)`
 - Other variables showing lower importance
+
+This variable importance ranking differs from the LASSO model's ranking, suggesting that when non-linear relationships are considered, age emerges as more important than smoking status across the entire dataset, even though smoking creates a more dramatic binary separation.
 
 ## XGBoost Model {#sec-xgboost}
 
@@ -504,52 +653,23 @@ train_y <- ifelse(train_data$charges == "high", 1, 0)
 test_x <- model.matrix(charges ~ . - 1, data = test_data)
 test_y <- ifelse(test_data$charges == "high", 1, 0)
 
-# Verify encoding consistency
-# cat("Sample of train_y values:", head(train_y), "\n")
-# cat("Corresponding charges values:", head(as.character(train_data$charges[1:6])), "\n")
-
-################################ XGBoost hyperparameter tuning
-
 # Use the same seed (9104) as in the main analysis
 set.seed(my_seed)
 
 # Step 1: Define parameter grid with reasoned choices
-# ---------------------------------------------------
 param_grid <- expand.grid(
-  # Learning rate (eta) options:
-  # - 0.01: Very slow learning, less chance of overfitting but slower convergence
-  # - 0.1: Moderate learning rate, good balance for most problems
-  # - 0.3: Faster learning, might overfit but converge quicker
   eta = c(0.01, 0.1, 0.3),
-  
-  # Tree depth options:
-  # - 2: Very shallow trees, likely to underfit but very interpretable
-  # - 3: Moderate depth, often works well for structured data
-  # - 5: Deeper trees that can capture more complexity, risk of overfitting
   max_depth = c(2, 3, 5),
-  
-  # Subsample ratio options (fraction of data used for each tree):
-  # - 0.6: Uses 60% of data, adds more randomization/diversity
-  # - 0.7: Moderate subsampling, good balance
-  # - 0.9: Uses most data, less randomization
   subsample = c(0.6, 0.7, 0.9),
-  
-  # Column sample ratio options (fraction of features per tree):
-  # - 0.6: More feature diversity between trees
-  # - 0.8: Moderate feature sampling
-  # - 1.0: Uses all features, good for datasets with few strong predictors
   colsample_bytree = c(0.6, 0.8, 1.0)
 )
 
 # Step 2: Create cross-validation folds
-# ------------------------------------
 n_folds <- 5
 set.seed(my_seed)
 cv_folds <- createFolds(train_y, k = n_folds, returnTrain = TRUE)
 
 # Step 3: Perform grid search with cross-validation
-# ------------------------------------------------
-# Note: The 'cat' function messages are included but will be hidden by results='hide'
 results <- data.frame()
 
 # Capture and suppress output
@@ -634,18 +754,14 @@ invisible(capture.output({
       mean_iteration = mean_iteration
     )
     results <- rbind(results, result_row)
-    
-    cat("Completed parameter set", i, "of", nrow(param_grid), "\n")
   }
 }))
 
-# Step 4: Find best parameters based on F1 score (most relevant for imbalanced data)
-# --------------------------------------------------------------------------------
+# Step 4: Find best parameters based on F1 score
 results <- results %>% arrange(desc(mean_f1))
 best_result <- results[1,]
 
 # Step 5: Train final model with best parameters
-# ---------------------------------------------
 final_params <- list(
   objective = "binary:logistic",
   eval_metric = "logloss",
@@ -687,7 +803,11 @@ ggplot(xgb_importance[1:6,], aes(x = reorder(Feature, Gain), y = Gain)) +
     y = "Gain (Contribution to Model)"
   ) +
   my_theme +
-  theme(panel.grid.major.y = element_blank())
+  theme(
+    panel.grid.major.y = element_blank(),
+    plot.margin = unit(c(1, 2, 1, 1), "cm")  # Increase right margin to prevent label cutoff
+  ) +
+  scale_y_continuous(limits = c(0, 0.55), expand = expansion(mult = c(0, 0.15)))  # Expand y-axis range
 
 # Calculate model metrics with consistent encoding
 xgb_prob <- predict(xgb_model, dvalid)
@@ -701,14 +821,14 @@ xgb_conf_matrix <- confusionMatrix(
 )
 ```
 
-XGBoost combines sequential trees with each correcting errors of previous trees. Optimized parameters:
+XGBoost combines sequential trees with each correcting errors of previous trees. The optimized parameters from our tuning process are:
 
 - **Learning rate**: `r final_params$eta`
 - **Max depth**: `r final_params$max_depth`
 - **Subsample ratio**: `r final_params$subsample`
 - **Column sample ratio**: `r final_params$colsample_bytree`
 
-The feature importance analysis again confirms smoking, age, and BMI as key predictors, with smoking status contributing a gain of `r round(xgb_importance$Gain[xgb_importance$Feature == "smokeryes"], 3)`, followed by age and BMI with gains of `r round(xgb_importance$Gain[xgb_importance$Feature == "age"], 3)` and `r round(xgb_importance$Gain[xgb_importance$Feature == "bmi"], 3)` respectively. Although here, we observe children as a more important predictor than BMI (the reverse of the Random Forest results).
+The feature importance analysis shows that age has the highest gain (`r round(xgb_importance$Gain[xgb_importance$Feature == "age"], 3)`), followed by smoking status (`r round(xgb_importance$Gain[xgb_importance$Feature == "smokeryes"], 3)`). Similar to the Random Forest model, XGBoost ranks age as more important than smoking status in terms of overall contribution to model performance, though the two models differ in their ranking of secondary predictors. In the XGBoost model, children has a gain of `r round(xgb_importance$Gain[xgb_importance$Feature == "children"], 3)`, placing it higher than BMI with a gain of `r round(xgb_importance$Gain[xgb_importance$Feature == "bmi"], 3)`.
 
 # Model Evaluation and Comparison {#sec-evaluation}
 
@@ -726,7 +846,7 @@ extract_metrics <- function(conf_matrix) {
 
 # Compute AUC for all models
 # LASSO
-lasso_pred_obj <- prediction(lasso_pred_prob, test_data$charges)
+lasso_pred_obj <- prediction(lasso_pred_prob, as.numeric(test_data$charges == "high")) # ensures we're passing numeric values (0/1) to the prediction function rather than factor levels.
 lasso_auroc <- performance(lasso_pred_obj, "auc")@y.values[[1]]
 # Properly calculate AUPRC for LASSO
 lasso_pr <- pr.curve(
@@ -738,7 +858,7 @@ lasso_auprc <- lasso_pr$auc.integral
 
 # Classification Tree
 tree_pred_prob <- predict(pruned_tree, newdata = test_data, type = "prob")[, "high"]
-tree_pred_obj <- prediction(tree_pred_prob, test_data$charges)
+tree_pred_obj <- prediction(tree_pred_prob, as.numeric(test_data$charges == "high"))
 tree_auroc <- performance(tree_pred_obj, "auc")@y.values[[1]]
 
 # calculate AUPRC for Tree
@@ -751,7 +871,7 @@ tree_auprc <- tree_pr$auc.integral
 
 # Random Forest
 rf_pred_prob <- predict(rf_model, newdata = test_data, type = "prob")[, "high"]
-rf_pred_obj <- prediction(rf_pred_prob, test_data$charges)
+rf_pred_obj <- prediction(rf_pred_prob, as.numeric(test_data$charges == "high"))
 rf_auroc <- performance(rf_pred_obj, "auc")@y.values[[1]]
 
 # calculate AUPRC for Random Forest
@@ -863,8 +983,6 @@ roc_plot <- ggplot(roc_data, aes(x = FPR, y = TPR, color = ModelLabel)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50", size = 0.8, alpha = 0.7) +
   # Add ROC curves
   geom_line(size = 1.5, alpha = 0.9) +
-  # Add points at specific thresholds for reference (optional)
-  # geom_point(data = subset(roc_data, FPR > 0.1 & FPR < 0.15), size = 3, alpha = 0.8) +
   # Add labels
   labs(
     title = "ROC Curves for All Models",
@@ -877,35 +995,20 @@ roc_plot <- ggplot(roc_data, aes(x = FPR, y = TPR, color = ModelLabel)) +
   coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
   # Apply custom color palette
   scale_color_manual(values = custom_colors) +
-  # Add shaded area under the best model's curve
-  geom_ribbon(
-    data = subset(roc_data, Model == best_auroc_model),
-    aes(ymin = 0, ymax = TPR, fill = ModelLabel), 
-    alpha = 0.1, 
-    inherit.aes = TRUE
-  ) +
-  scale_fill_manual(values = custom_colors[1], guide = "none") +
   # Apply custom theme
   my_theme +
+  # We'll add the annotation text with corrected placement
   theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
-    plot.subtitle = element_text(hjust = 0.5, size = 12, color = "gray40"),
-    axis.title = element_text(size = 12, face = "bold"),
-    axis.text = element_text(size = 10),
     legend.position = "bottom",
-    legend.title = element_text(size = 12),
-    legend.text = element_text(size = 10),
-    legend.key.size = unit(1.2, "cm"),
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(color = "gray90"),
-    plot.margin = unit(c(1, 1, 1, 1), "cm"),
-    panel.border = element_rect(color = "gray80", fill = NA, size = 1)
+    legend.box = "horizontal",
+    legend.margin = grid::unit(c(10, 0, 0, 0), "pt"),
+    plot.margin = unit(c(1, 1, 2, 1), "cm")  # Increase bottom margin for legend
   ) +
-  # Add annotation
+  # Add annotation with better placement
   annotate(
     "text", 
-    x = 0.65, 
-    y = 0.15, 
+    x = 0.25, 
+    y = 0.75, 
     label = "Models with curves closer to the\ntop-left corner perform better",
     size = 4, 
     fontface = "italic", 
@@ -920,10 +1023,12 @@ The evaluation reveals different strengths across models:
 
 1. **F1 Score**: `r best_f1_model` achieves highest F1 score (`r round(best_f1_score, 3)`), best balancing precision and recall, which is particularly important given our class imbalance
 2. **Accuracy**: `r best_accuracy_model` leads in overall accuracy at `r round(best_accuracy_score, 3)`
-3. **AUROC**: `r best_auroc_model` tops the Area Under ROC Curve metric at `r round(best_auroc_score, 3)`
+3. **AUROC**: `r best_auroc_model` and Classification Tree both perform strongly in Area Under ROC Curve metrics (around `r round(best_auroc_score, 3)`)
 4. **AUPRC**: `r best_auprc_model` shows strongest performance in Area Under Precision-Recall Curve at `r round(best_auprc_score, 3)`
 
 Looking across metrics, we observe that tree-based models generally outperform logistic regression, highlighting the importance of capturing non-linear relationships and interactions present in the data. The relative performance varies by metric, requiring consideration of stakeholder priorities when selecting a final model.
+
+The following analysis provides insight into why different models rank variables differently. While smoking creates a perfect binary separation for one group of patients, age provides more discriminative power across the entire dataset, particularly for non-smokers. Tree-based models can capture this complex relationship better than linear models like logistic regression.
 
 ```{r partial-dependence, fig.height=6, fig.width=9, fig.cap="Partial Dependence Plot: Age Effect by Smoking Status"}
 # Create a function to make predictions that ensures factor levels match the training data
@@ -988,11 +1093,14 @@ ggplot(pdp_data, aes(x = age, y = probability, color = smoker)) +
 
 Partial dependence analysis using the Random Forest model reveals key patterns that help explain the model performance:
 
-1. **Smoking Effect**: Smoking has a dramatic impact on the probability of high charges, showing a clear separation between smokers and non-smokers
-2. **Age Effect**: Age shows a positive relationship with probability of high charges for both groups
-3. **Age-Smoking Interaction**: The visualization demonstrates how the Random Forest model captures the different effects of age based on smoking status without requiring explicit interaction terms
+1. **Smoking Effect**: Smoking has a dramatic impact on the probability of high charges, showing a clear separation between smokers and non-smokers. Smokers consistently maintain a high probability (near 1.0) regardless of age.
 
-This analysis aligns with our earlier findings that smoking status and age are the most important predictors of high insurance charges. The Random Forest model effectively captures these relationships, explaining its strong performance on the F1 score metric. Tree-based models like Random Forest are particularly well-suited for this type of data with strong categorical predictors and potential interactions.
+2. **Age Effect**: For non-smokers, age shows a more complex, non-linear relationship with the probability of high charges:
+   - Ages 20-40: Moderate probability with some variability
+   - Ages 40-45: Sharp increase in probability 
+   - Ages 45+: Nearly all classified as high charges
+
+3. **Age-Smoking Interaction**: The visualization demonstrates how the Random Forest model captures these different effects without requiring explicit interaction terms. The effect of age is much more pronounced for non-smokers than for smokers (for whom the baseline probability is already high).
 
 # Final Model Selection and Prediction {#sec-final-model}
 
@@ -1005,32 +1113,32 @@ best_models_df <- data.frame(
 )
 
 # Format best models table
-kbl(
-  best_models_df,
-  caption = "Best Performing Models by Different Metrics",
-  format = "latex",
-  booktabs = TRUE,
-  align = "c",
-  col.names = c("Evaluation Metric", "Best Model", "Value"),
-  digits = 3
-) %>%
-  kable_styling(
-    latex_options = c("HOLD_position"),
-    font_size = 10,
-    position = "center"
-  ) %>%
-  row_spec(1, bold = TRUE, background = "#E8F4F8")  # Highlight F1 score row
+# kbl(
+#   best_models_df,
+#   caption = "Best Performing Models by Different Metrics",
+#   format = "latex",
+#   booktabs = TRUE,
+#   align = "c",
+#   col.names = c("Evaluation Metric", "Best Model", "Value"),
+#   digits = 3
+# ) %>%
+#   kable_styling(
+#     latex_options = c("HOLD_position"),
+#     font_size = 10,
+#     position = "center"
+#   ) %>%
+#   row_spec(1, bold = TRUE, background = "#E8F4F8")  # Highlight F1 score row
 ```
 
-Based on our comprehensive evaluation, `r best_f1_model` is selected as the optimal model for the following reasons:
+Based on our evaluation, `r best_f1_model` is selected as the optimal model for the following reasons:
 
-1. **Highest F1 Score**: At `r round(best_f1_score, 3)`, this model achieves the best balance between precision and recall, which is critical given our class imbalance
-2. **Strong Overall Performance**: While other models may excel in specific metrics, `r best_f1_model` demonstrates consistently strong performance across multiple evaluation criteria
-3. **Effective Capture of Non-linear Relationships**: As a tree-based ensemble method, `r best_f1_model` effectively captures the complex interactions identified in our EDA
-4. **Consistent Feature Importance**: Smoking status, age, and BMI are consistently ranked as top predictors across all models, and `r best_f1_model` appropriately weights these factors
-5. **Practical Implementation**: This model provides a good balance between predictive power and implementation complexity
+1. **Highest F1 Score**: At `r round(best_f1_score, 3)`, this model achieves the best balance between precision and recall, which is critical given our class imbalance.
+2. **Strong Overall Performance**: While other models may excel in specific metrics, `r best_f1_model` demonstrates consistently strong performance across multiple evaluation criteria.
+3. **Effective Capture of Non-linear Relationships**: As a tree-based ensemble method, `r best_f1_model` effectively captures the complex interactions identified in our EDA.
+4. **Consistent Feature Importance**: The model appropriately weighs key predictors (age, smoking status, BMI) in line with our exploratory findings.
+5. **Practical Implementation**: This model provides a good balance between predictive power and implementation complexity.
 
-```{r final-prediction, fig.width=9, fig.height=6, fig.cap="Predicted Probabilities of High Charges on External Test Data"}
+```{r final-prediction, fig.width=9, fig.height=6}
 model_map <- list(
   "LASSO Logistic" = "lasso_model",
   "Classification Tree" = "pruned_tree",
@@ -1117,25 +1225,25 @@ prediction_percents <- prop.table(prediction_counts) * 100
 
 # Create a clean summary table
 prediction_summary <- data.frame(
+  Class = names(prediction_counts),
   Percentage = prediction_percents,
   Count = as.integer(prediction_counts)
-) %>% 
-  setNames(c("Class", "Percentage", "Count"))
+) 
 
 # Format prediction summary table
-kbl(
-  prediction_summary,
-  caption = paste("Summary of", best_f1_model, "Predictions on External Test Data"),
-  format = "latex",
-  booktabs = TRUE,
-  align = "c",
-  digits = c(0, 1, 0)
-) %>%
-  kable_styling(
-    latex_options = c("HOLD_position"),
-    font_size = 10,
-    position = "center"
-  )
+# kbl(
+#   prediction_summary,
+#   caption = paste("Summary of", best_f1_model, "Predictions on External Test Data"),
+#   format = "latex",
+#   booktabs = TRUE,
+#   align = "c",
+#   digits = c(0, 1, 0)
+# ) %>%
+#   kable_styling(
+#     latex_options = c("HOLD_position"),
+#     font_size = 10,
+#     position = "center"
+#   )
 
 # Compare external test distribution with training data distribution
 distribution_comparison <- data.frame(
@@ -1151,21 +1259,24 @@ distribution_comparison <- data.frame(
 )
 
 # Format distribution comparison table
-kbl(
-  distribution_comparison,
-  caption = "Comparison of Class Distribution: Training vs. External Test",
-  format = "latex",
-  booktabs = TRUE,
-  align = "c",
-  col.names = c("Dataset", "High Charges (%)", "Low Charges (%)"),
-  digits = 1
-) %>%
-  kable_styling(
-    latex_options = c("HOLD_position"),
-    font_size = 10,
-    position = "center"
-  )
+# kbl(
+#   distribution_comparison,
+#   caption = "Comparison of Class Distribution: Training vs. External Test",
+#   format = "latex",
+#   booktabs = TRUE,
+#   align = "c",
+#   col.names = c("Dataset", "High Charges (%)", "Low Charges (%)"),
+#   digits = 1
+# ) %>%
+#   kable_styling(
+#     latex_options = c("HOLD_position"),
+#     font_size = 10,
+#     position = "center"
+#   )
 
+```
+
+```{r save-predictions}
 # Write predictions to CSV file
 write.table(final_predictions, file = "TBSCES001.csv", 
            row.names = FALSE, col.names = FALSE, quote = FALSE)
@@ -1180,33 +1291,16 @@ The `r best_f1_model` model was applied to the external test dataset (`r nrow(te
 
 The similarity in class distribution between the training and external test datasets (`r round(abs(prediction_percents["high"] - training_charges_percent["high"]), 1)`% difference in "high" charges) suggests the model is generalizing well rather than over or underpredicting high-cost cases.
 
-These predictions provide actionable insights for stakeholders:
-- **Insurers** can use classifications for risk assessments and premium calculations
-- **Healthcare providers** can identify high-risk individuals for preventive interventions
-- **Policymakers** can target public health initiatives at influential factors
-
 # Conclusion {#sec-conclusion}
 
-This study developed and evaluated four classification models for predicting insurance charge categories. Key findings include:
+This study developed and evaluated four classification models for predicting insurance charge categories (high/low). Key findings include:
 
-1. **Model Performance**: `r best_f1_model` achieved the highest F1 score (`r round(best_f1_score, 3)`), though different models excelled in different metrics. The strong performance of tree-based models confirms the presence of complex, non-linear relationships in insurance cost factors.
+1. **Model Performance**: `r best_f1_model` achieved the highest F1 score (`r round(best_f1_score, 3)`), though other models were only marginally poorer. The strong performance of tree-based models confirms the presence of complex, non-linear relationships in insurance cost factors.
 
-2. **Key Determinants**: Smoking status emerged as the dominant predictor, followed by age and BMI, consistently across all models. Consistency across different modeling techniques reinforces the robustness of these findings.
+2. **Key Determinants**: Different models rank predictors differently based on their underlying algorithms:
+   - **Linear models** (LASSO): Smoking status emerges as the overwhelmingly dominant predictor
+   - **Tree-based models** (Random Forest, XGBoost): Age is ranked as the most important variable, while still recognizing smoking as crucial
 
-3. **Non-linear Relationships**: Important non-linear effects were identified, particularly for BMI above the clinical obesity threshold (BMI ≥ 30), where risk accelerates rather than increasing linearly.
+3. **Non-linear Relationships**: Important non-linear effects were identified, particularly for age, where risk increases dramatically around age 43-46, and for BMI above the clinical obesity threshold (BMI ≥ 30), where risk accelerates rather than increasing linearly.
 
 4. **Interaction Effects**: Significant interactions between smoking status and age were discovered, as visualized in our partial dependence analysis. The effect of age on probability of high charges is much stronger for non-smokers than for smokers, for whom the baseline probability is already high.
-
-5. **Variable Selection**: LASSO effectively identified the most important predictors while reducing the influence of less important variables, providing a parsimonious model even though its overall performance was lower than tree-based methods.
-
-The consistency in variable importance across different modeling approaches provides robust guidance for healthcare and insurance decision-making. These insights can inform:
-
-- **Patient education** about modifiable risk factors, particularly smoking cessation and weight management
-- **Risk-based premium calculations** that balance predictive accuracy with fairness considerations
-- **Public health policy** targeting the factors with highest impact on healthcare costs
-
-The `r best_f1_model` model's strong performance on the F1 score metric ensures reliable classification even with class imbalance, providing a balanced approach to identifying both high and low charge cases.
-
-Future work could explore additional features such as more detailed health metrics or longitudinal data to provide insights into how risk factors evolve over time, enabling more dynamic risk assessment models.
-
-The code and data for this analysis are available in the GitHub repository: [sl-assignment2](https://github.com/ces0491/sl-assignment2.git)
